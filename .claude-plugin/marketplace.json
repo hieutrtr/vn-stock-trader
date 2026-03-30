@@ -1,0 +1,37 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "vn-stock-trader",
+  "description": "Vietnamese stock market analysis and trading tools for Claude Code — real-time data, technical/fundamental analysis, portfolio management, and automated monitoring for HOSE, HNX, UPCOM",
+  "owner": {
+    "name": "Hieu Tran",
+    "email": "hieu@vn-stock-trader.dev"
+  },
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "name": "vn-stock-trader",
+      "description": "Complete Vietnamese stock trading toolkit — 11 MCP tools (price, history, financials, news, screener, portfolio, insider trades), 10 auto-trigger skills (TA, FA, news impact, portfolio review, sector compare, morning brief, session summary, portfolio monitor, watchlist), 8 slash commands (/analyze, /screen, /portfolio, /news, /compare, /report, /alert, /trading-session), 4 specialized agents (market-watcher, news-analyst, portfolio-manager, research-agent)",
+      "version": "1.0.0",
+      "author": {
+        "name": "Hieu Tran",
+        "email": "hieu@vn-stock-trader.dev"
+      },
+      "source": "./",
+      "category": "finance",
+      "homepage": "https://github.com/hieutran/vn-stock-trader",
+      "tags": [
+        "vietnamese-stocks",
+        "stock-trading",
+        "market-analysis",
+        "technical-analysis",
+        "fundamental-analysis",
+        "portfolio-management",
+        "hose",
+        "hnx",
+        "upcom",
+        "vnstock",
+        "mcp-tools"
+      ]
+    }
+  ]
+}

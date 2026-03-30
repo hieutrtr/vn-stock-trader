@@ -1,0 +1,35 @@
+{
+  "_schema": "vn-stock-trader automation config v1",
+  "schedule": {
+    "morning_brief_time": "08:30",
+    "session_summary_time": "14:50",
+    "monitor_interval_minutes": 5
+  },
+  "alert_thresholds": {
+    "price_change_pct": 5.0,
+    "volume_spike_ratio": 3.0,
+    "portfolio_pnl_alert_pct": 3.0,
+    "near_ceiling_pct": 1.0,
+    "near_floor_pct": 1.0
+  },
+  "output": {
+    "briefs_dir": "data/briefs",
+    "summaries_dir": "data/summaries",
+    "log_file": "data/automation.log"
+  },
+  "telegram": {
+    "enabled": false,
+    "bot_token": "",
+    "chat_id": ""
+  },
+  "trading_hours": {
+    "morning_open": "09:00",
+    "morning_close": "11:30",
+    "afternoon_open": "13:00",
+    "afternoon_close": "14:45",
+    "atc_start": "14:30",
+    "atc_end": "14:45",
+    "timezone": "Asia/Ho_Chi_Minh"
+  },
+  "updated_at": "2026-03-30T08:00:00"
+}

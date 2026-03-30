@@ -1,0 +1,13 @@
+{
+  "_schema": "vn-stock-trader watchlist v1",
+  "symbols": ["HPG", "ACB", "MBB", "FPT", "VHM"],
+  "alerts": [
+    {
+      "symbol": "HPG",
+      "condition": "price_below",
+      "value": 28000,
+      "note": "Vùng hỗ trợ mạnh"
+    }
+  ],
+  "updated_at": "2026-03-30T08:00:00"
+}

@@ -1,0 +1,16 @@
+{
+  "_schema": "vn-stock-trader portfolio v1",
+  "positions": [
+    {
+      "symbol": "VNM",
+      "qty": 1000,
+      "avg_cost": 72000,
+      "purchase_date": "2026-01-15",
+      "notes": "Mua tại vùng hỗ trợ MA200"
+    }
+  ],
+  "cash": 50000000,
+  "t1_receivable": 0,
+  "t2_receivable": 0,
+  "updated_at": "2026-03-30T08:00:00"
+}

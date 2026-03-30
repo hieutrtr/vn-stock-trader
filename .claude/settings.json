@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Write(.claude/skills/*)",
+      "Bash(rm*)",
+      "Bash(mkdir*)",
+      "Write(.claude/skills/*/*)",
+      "Write(.claude/commands/*)",
+      "Write(.claude/agents/*)",
+      "Write(.claude/settings.json)",
+      "Write(docs/**)",
+      "Write(src/**)",
+      "Write(tests/**)",
+      "Bash(python*)",
+      "Bash(pytest*)",
+      "Bash(pip*)",
+      "Bash(ruff*)"
+    ]
+  }
+}
