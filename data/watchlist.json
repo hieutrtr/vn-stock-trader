@@ -1,13 +1,146 @@
 {
   "_schema": "vn-stock-trader watchlist v1",
-  "symbols": ["HPG", "ACB", "MBB", "FPT", "VHM"],
+  "_note": "Alerts đặt dựa trên giá tham chiếu Q1/2026. Cập nhật lại khi nguồn dữ liệu khả dụng.",
+  "symbols": ["HPG", "ACB", "MBB", "FPT", "VHM", "VNM", "TCB", "VCB", "MWG", "PNJ"],
   "alerts": [
     {
       "symbol": "HPG",
       "condition": "price_below",
-      "value": 28000,
-      "note": "Vùng hỗ trợ mạnh"
+      "value": 27000,
+      "ref_price": 28500,
+      "note": "Hỗ trợ mạnh vùng 27,000 (-5.3%). Vi phạm → xem xét cắt lỗ."
+    },
+    {
+      "symbol": "HPG",
+      "condition": "price_above",
+      "value": 30500,
+      "ref_price": 28500,
+      "note": "Kháng cự 30,500 (+7%). Breakout → tín hiệu tích cực."
+    },
+    {
+      "symbol": "ACB",
+      "condition": "price_below",
+      "value": 25500,
+      "ref_price": 27000,
+      "note": "Vùng hỗ trợ ACB 25,500 (-5.6%)."
+    },
+    {
+      "symbol": "ACB",
+      "condition": "price_above",
+      "value": 28800,
+      "ref_price": 27000,
+      "note": "Kháng cự ACB 28,800 (+6.7%)."
+    },
+    {
+      "symbol": "MBB",
+      "condition": "price_below",
+      "value": 23000,
+      "ref_price": 24500,
+      "note": "Hỗ trợ MBB 23,000 (-6.1%). Nhóm bank đang theo dõi chặt."
+    },
+    {
+      "symbol": "MBB",
+      "condition": "near_floor",
+      "value": true,
+      "note": "Alert khi MBB tiếp cận sàn trong phiên — thanh khoản yếu bất thường."
+    },
+    {
+      "symbol": "FPT",
+      "condition": "price_below",
+      "value": 129000,
+      "ref_price": 138000,
+      "note": "Hỗ trợ FPT 129,000 (-6.5%). Trend tăng dài hạn còn nguyên vẹn."
+    },
+    {
+      "symbol": "FPT",
+      "condition": "near_ceiling",
+      "value": true,
+      "note": "Alert khi FPT tiếp cận trần — momentum tích cực, xem xét chốt một phần."
+    },
+    {
+      "symbol": "VHM",
+      "condition": "price_below",
+      "value": 35500,
+      "ref_price": 38000,
+      "note": "Hỗ trợ VHM 35,500 (-6.6%). Bất động sản nhạy cảm với tin lãi suất."
+    },
+    {
+      "symbol": "VHM",
+      "condition": "price_above",
+      "value": 40600,
+      "ref_price": 38000,
+      "note": "Kháng cự VHM 40,600 (+6.8%)."
+    },
+    {
+      "symbol": "VNM",
+      "condition": "price_below",
+      "value": 67500,
+      "ref_price": 72000,
+      "note": "Hỗ trợ VNM 67,500 (-6.3%). Đang nắm giữ — cắt lỗ nếu vi phạm."
+    },
+    {
+      "symbol": "VNM",
+      "condition": "price_above",
+      "value": 77000,
+      "ref_price": 72000,
+      "note": "Kháng cự VNM 77,000 (+6.9%). Chốt lời một phần."
+    },
+    {
+      "symbol": "TCB",
+      "condition": "price_below",
+      "value": 25800,
+      "ref_price": 27500,
+      "note": "Hỗ trợ TCB 25,800 (-6.2%)."
+    },
+    {
+      "symbol": "TCB",
+      "condition": "price_above",
+      "value": 29400,
+      "ref_price": 27500,
+      "note": "Kháng cự TCB 29,400 (+6.9%)."
+    },
+    {
+      "symbol": "VCB",
+      "condition": "price_below",
+      "value": 84500,
+      "ref_price": 90000,
+      "note": "Hỗ trợ VCB 84,500 (-6.1%). Blue-chip — tích lũy nếu về vùng này."
+    },
+    {
+      "symbol": "VCB",
+      "condition": "price_above",
+      "value": 96500,
+      "ref_price": 90000,
+      "note": "Kháng cự VCB 96,500 (+7.2%). Breakout quan trọng."
+    },
+    {
+      "symbol": "MWG",
+      "condition": "price_below",
+      "value": 58000,
+      "ref_price": 62000,
+      "note": "Hỗ trợ MWG 58,000 (-6.5%). Bán lẻ phục hồi — theo dõi sức mua tiêu dùng."
+    },
+    {
+      "symbol": "MWG",
+      "condition": "price_above",
+      "value": 66500,
+      "ref_price": 62000,
+      "note": "Kháng cự MWG 66,500 (+7.3%)."
+    },
+    {
+      "symbol": "PNJ",
+      "condition": "price_below",
+      "value": 89000,
+      "ref_price": 95000,
+      "note": "Hỗ trợ PNJ 89,000 (-6.3%). Vàng trang sức hưởng lợi khi giá vàng cao."
+    },
+    {
+      "symbol": "PNJ",
+      "condition": "price_above",
+      "value": 101500,
+      "ref_price": 95000,
+      "note": "Kháng cự PNJ 101,500 (+6.8%). Phá đỉnh — xem xét thêm vị thế."
     }
   ],
-  "updated_at": "2026-03-30T08:00:00"
+  "updated_at": "2026-03-31T08:00:00"
 }

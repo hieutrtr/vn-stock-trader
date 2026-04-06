@@ -4,7 +4,7 @@ vnstock_client.py — Wrapper quanh thư viện vnstock.
 Chuẩn hóa output thành Python dict/DataFrame có kiểu rõ ràng,
 xử lý lỗi gracefully, cache SQLite tự động.
 
-Nguồn dữ liệu: TCBS (mặc định) với fallback sang VCI.
+Nguồn dữ liệu: VCI (mặc định) với fallback sang MSN.
 Rate limit: max 3 concurrent requests (token bucket via threading.Semaphore).
 """
 
@@ -113,32 +113,50 @@ def get_stock_price(symbol: str) -> dict[str, Any]:
 
     try:
         Vnstock = _import_vnstock()
-        stock = _rate_limited_call(Vnstock(source="TCBS").stock, symbol=symbol, category="stock")
-        quote = _rate_limited_call(stock.quote.history, start=(datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"), end=datetime.now().strftime("%Y-%m-%d"))
+        # vnstock 3.5.0: stock() nhận symbol trực tiếp, không có category param
+        stock = _rate_limited_call(Vnstock(source="VCI").stock, symbol=symbol)
+        # Dùng price_board để lấy real-time data (ceiling/floor/ref_price/foreign)
+        pb_raw = _rate_limited_call(stock.trading.price_board, [symbol])
 
-        if quote is None or len(quote) == 0:
+        if pb_raw is None or len(pb_raw) == 0:
             return {"error": f"Symbol not found: {symbol}"}
 
-        # Lấy dòng cuối (phiên gần nhất)
-        row = quote.iloc[-1]
-        ref = float(row.get("close", 0))
+        # Flatten MultiIndex columns (nếu là MultiIndex)
+        if isinstance(pb_raw.columns, pd.MultiIndex):
+            pb_raw.columns = ["_".join(col).strip() for col in pb_raw.columns.values]
+        row = pb_raw.iloc[0]
+
+        ref_price = float(row.get("listing_ref_price", 0) or 0)
+        match_price = float(row.get("match_match_price", 0) or 0)
+        # Fallback nếu match_price = 0 (ngoài giờ), dùng ref_price
+        if match_price == 0:
+            match_price = ref_price
+
+        change = match_price - ref_price
+        pct_change = (change / ref_price * 100) if ref_price > 0 else 0.0
+
+        foreign_buy = int(row.get("match_foreign_buy_volume", 0) or 0)
+        foreign_sell = int(row.get("match_foreign_sell_volume", 0) or 0)
+        current_room = float(row.get("match_current_room", 0) or 0)
+        total_room = float(row.get("match_total_room", 0) or 0)
+        foreign_room_pct = round(current_room / total_room * 100, 2) if total_room > 0 else None
 
         result: dict[str, Any] = {
             "symbol": symbol,
-            "price": float(row.get("close", 0)),
-            "change": 0.0,
-            "pct_change": 0.0,
-            "open": float(row.get("open", 0)),
-            "high": float(row.get("high", 0)),
-            "low": float(row.get("low", 0)),
-            "volume": int(row.get("volume", 0)),
-            "value": float(row.get("value", 0)) if "value" in row.index else 0.0,
-            "reference_price": ref,
-            "ceiling": round(ref * 1.07),
-            "floor": round(ref * 0.93),
-            "foreign_buy_vol": 0,
-            "foreign_sell_vol": 0,
-            "foreign_room_pct": None,
+            "price": match_price,
+            "change": round(change, 2),
+            "pct_change": round(pct_change, 2),
+            "open": float(row.get("match_open_price", 0) or 0),
+            "high": float(row.get("match_highest", 0) or 0),
+            "low": float(row.get("match_lowest", 0) or 0),
+            "volume": int(row.get("match_accumulated_volume", 0) or 0),
+            "value": float(row.get("match_accumulated_value", 0) or 0) * 1_000_000,  # million VND → VND
+            "reference_price": ref_price,
+            "ceiling": float(row.get("listing_ceiling", 0) or round(ref_price * 1.07)),
+            "floor": float(row.get("listing_floor", 0) or round(ref_price * 0.93)),
+            "foreign_buy_vol": foreign_buy,
+            "foreign_sell_vol": foreign_sell,
+            "foreign_room_pct": foreign_room_pct,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
 
@@ -187,7 +205,7 @@ def get_stock_history(symbol: str, period: str = "1y") -> pd.DataFrame:
         start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         stock = _rate_limited_call(
-            Vnstock(source="TCBS").stock, symbol=symbol, category="stock"
+            Vnstock(source="VCI").stock, symbol=symbol
         )
         df = _rate_limited_call(
             stock.quote.history,
@@ -255,7 +273,7 @@ def get_financial_report(symbol: str, period: int = 4) -> dict[str, Any]:
     try:
         Vnstock = _import_vnstock()
         stock = _rate_limited_call(
-            Vnstock(source="TCBS").stock, symbol=symbol, category="stock"
+            Vnstock(source="VCI").stock, symbol=symbol
         )
 
         # Income statement
@@ -297,15 +315,26 @@ def get_financial_report(symbol: str, period: int = 4) -> dict[str, Any]:
                 stock.finance.ratio, period="quarter", lang="en"
             )
             if ratio_df is not None and len(ratio_df) > 0:
+                # vnstock 3.5.0 trả về MultiIndex columns — flatten trước
+                if isinstance(ratio_df.columns, pd.MultiIndex):
+                    ratio_df.columns = [
+                        "_".join(str(c) for c in col).strip()
+                        for col in ratio_df.columns.values
+                    ]
                 row = ratio_df.iloc[0]
-                for src_key, dst_key in [
-                    ("priceToEarning", "pe"), ("priceToBook", "pb"),
-                    ("roe", "roe"), ("roa", "roa"),
-                    ("postTaxMargin", "net_margin"),
-                    ("debtOnEquity", "debt_equity"),
-                    ("earningPerShare", "eps"),
-                    ("bookValuePerShare", "bvps"),
-                ]:
+                # Map tên cột mới → key nội bộ
+                # Cột dạng "Chỉ tiêu định giá_P/E" sau khi flatten
+                _ratio_map = {
+                    "Chỉ tiêu định giá_P/E": "pe",
+                    "Chỉ tiêu định giá_P/B": "pb",
+                    "Chỉ tiêu khả năng sinh lợi_ROE (%)": "roe",
+                    "Chỉ tiêu khả năng sinh lợi_ROA (%)": "roa",
+                    "Chỉ tiêu khả năng sinh lợi_Net Profit Margin (%)": "net_margin",
+                    "Chỉ tiêu cơ cấu nguồn vốn_Debt/Equity": "debt_equity",
+                    "Chỉ tiêu định giá_EPS (VND)": "eps",
+                    "Chỉ tiêu định giá_BVPS (VND)": "bvps",
+                }
+                for src_key, dst_key in _ratio_map.items():
                     if src_key in row.index:
                         val = row[src_key]
                         ratios[dst_key] = round(float(val), 4) if pd.notna(val) else None
@@ -357,45 +386,89 @@ def get_market_overview() -> dict[str, Any]:
 
     try:
         Vnstock = _import_vnstock()
-        vs = Vnstock(source="TCBS")
-        market_data = _rate_limited_call(vs.stock_screening.market_overview)
+
+        def _get_index_data(index_symbol: str) -> dict[str, Any]:
+            """Lấy giá trị index hôm nay và hôm qua để tính change/pct."""
+            try:
+                stock = Vnstock(source="VCI").stock(symbol=index_symbol)
+                start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+                end_date = datetime.now().strftime("%Y-%m-%d")
+                df = _rate_limited_call(stock.quote.history, start=start_date, end=end_date)
+                if df is None or len(df) < 2:
+                    return {"value": None, "change": None, "pct": None}
+                today = df.iloc[-1]
+                yesterday = df.iloc[-2]
+                value = float(today["close"])
+                prev = float(yesterday["close"])
+                change = round(value - prev, 2)
+                pct = round(change / prev * 100, 2) if prev > 0 else 0.0
+                return {"value": round(value, 2), "change": change, "pct": pct}
+            except Exception as e:
+                logger.debug("_get_index_data(%s) failed: %s", index_symbol, e)
+                return {"value": None, "change": None, "pct": None}
+
+        vn_index = _get_index_data("VNINDEX")
+        hnx_index = _get_index_data("HNXINDEX")
+        upcom_index = _get_index_data("UPCOMINDEX")
+
+        # Breadth từ price_board của một sample stocks HOSE
+        _LIQUID_STOCKS = [
+            "VNM", "VCB", "BID", "CTG", "TCB", "MBB", "ACB", "VPB", "HPG",
+            "FPT", "VHM", "VIC", "GAS", "SAB", "MSN", "PLX", "POW", "HDB",
+            "LPB", "SHB", "SSI", "PNJ", "REE", "DCM", "DGC", "MWG", "BCM",
+            "GVR", "STB", "EIB", "NVL", "KDH", "DXG", "PDR", "NLG",
+        ]
+        advance = decline = unchanged = ceiling_cnt = floor_cnt = 0
+        total_vol = 0
+        total_val = 0.0
+        foreign_buy = 0.0
+        foreign_sell = 0.0
+
+        try:
+            pb_stock = Vnstock(source="VCI").stock(symbol="VNM")
+            pb_raw = _rate_limited_call(pb_stock.trading.price_board, _LIQUID_STOCKS)
+            if pb_raw is not None and len(pb_raw) > 0:
+                if isinstance(pb_raw.columns, pd.MultiIndex):
+                    pb_raw.columns = ["_".join(col).strip() for col in pb_raw.columns.values]
+                for _, r in pb_raw.iterrows():
+                    ref = float(r.get("listing_ref_price", 0) or 0)
+                    mp = float(r.get("match_match_price", 0) or 0)
+                    ceil_p = float(r.get("listing_ceiling", 0) or 0)
+                    floor_p = float(r.get("listing_floor", 0) or 0)
+                    if ref > 0 and mp > 0:
+                        if mp > ref:
+                            advance += 1
+                        elif mp < ref:
+                            decline += 1
+                        else:
+                            unchanged += 1
+                        if mp >= ceil_p > 0:
+                            ceiling_cnt += 1
+                        if mp <= floor_p > 0:
+                            floor_cnt += 1
+                    total_vol += int(r.get("match_accumulated_volume", 0) or 0)
+                    total_val += float(r.get("match_accumulated_value", 0) or 0) * 1_000_000  # million VND → VND
+                    foreign_buy += float(r.get("match_foreign_buy_value", 0) or 0)   # in VND
+                    foreign_sell += float(r.get("match_foreign_sell_value", 0) or 0)  # in VND
+        except Exception as e:
+            logger.debug("Breadth calculation failed: %s", e)
 
         result: dict[str, Any] = {
-            "vn_index": {"value": None, "change": None, "pct": None},
-            "hnx_index": {"value": None, "change": None, "pct": None},
-            "upcom_index": {"value": None, "change": None, "pct": None},
-            "total_volume": None,
-            "total_value_bn_vnd": None,
-            "advance": None,
-            "decline": None,
-            "unchanged": None,
-            "ceiling": None,
-            "floor": None,
-            "foreign_buy_bn": None,
-            "foreign_sell_bn": None,
-            "foreign_net_bn": None,
+            "vn_index": vn_index,
+            "hnx_index": hnx_index,
+            "upcom_index": upcom_index,
+            "total_volume": total_vol if total_vol > 0 else None,
+            "total_value_bn_vnd": round(total_val / 1e9, 1) if total_val > 0 else None,
+            "advance": advance if advance + decline + unchanged > 0 else None,
+            "decline": decline if advance + decline + unchanged > 0 else None,
+            "unchanged": unchanged if advance + decline + unchanged > 0 else None,
+            "ceiling": ceiling_cnt if advance + decline + unchanged > 0 else None,
+            "floor": floor_cnt if advance + decline + unchanged > 0 else None,
+            "foreign_buy_bn": round(foreign_buy / 1e9, 1) if foreign_buy > 0 else None,
+            "foreign_sell_bn": round(foreign_sell / 1e9, 1) if foreign_sell > 0 else None,
+            "foreign_net_bn": round((foreign_buy - foreign_sell) / 1e9, 1) if (foreign_buy + foreign_sell) > 0 else None,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
         }
-
-        if market_data is not None and len(market_data) > 0:
-            for _, row in market_data.iterrows():
-                idx_code = str(row.get("indexId", "")).upper()
-                entry = {
-                    "value": float(row.get("indexValue", 0)),
-                    "change": float(row.get("indexChange", 0)),
-                    "pct": float(row.get("indexChangePercent", 0)),
-                }
-                if "VNINDEX" in idx_code or "VN-INDEX" in idx_code:
-                    result["vn_index"] = entry
-                    result["advance"] = int(row.get("advances", 0))
-                    result["decline"] = int(row.get("declines", 0))
-                    result["unchanged"] = int(row.get("noChanges", 0))
-                    result["ceiling"] = int(row.get("ceilings", 0))
-                    result["floor"] = int(row.get("floors", 0))
-                elif "HNX" in idx_code:
-                    result["hnx_index"] = entry
-                elif "UPCOM" in idx_code:
-                    result["upcom_index"] = entry
 
         cache.set(cache_key, result, ttl_type="market")
         return result
@@ -424,25 +497,53 @@ def get_top_movers(n: int = 10) -> dict[str, Any]:
 
     try:
         Vnstock = _import_vnstock()
-        vs = Vnstock(source="TCBS")
-        df = _rate_limited_call(vs.stock_screening.top_movers)
+
+        # Dùng price_board với universe liquid stocks thay cho stock_screening.top_movers
+        _UNIVERSE = [
+            "VNM", "VCB", "BID", "CTG", "TCB", "MBB", "ACB", "VPB", "HPG", "FPT",
+            "VHM", "VIC", "GAS", "SAB", "MSN", "PLX", "POW", "HDB", "LPB", "SHB",
+            "SSI", "PNJ", "REE", "DCM", "DGC", "MWG", "BCM", "GVR", "STB", "EIB",
+            "NVL", "KDH", "DXG", "PDR", "NLG", "HSG", "NKG", "DPM", "HAG", "PVD",
+            "BSI", "VHC", "ANV", "IDC", "KBC", "SCS", "PC1", "TDH", "VND", "HCM",
+        ]
+
+        stock = Vnstock(source="VCI").stock(symbol="VNM")
+        pb_raw = _rate_limited_call(stock.trading.price_board, _UNIVERSE)
 
         result: dict[str, Any] = {"gainers": [], "losers": [], "volume_leaders": []}
-        if df is None or len(df) == 0:
+        if pb_raw is None or len(pb_raw) == 0:
             return result
 
-        df = df.rename(columns=str.lower)
+        # Flatten MultiIndex (nếu là MultiIndex)
+        if isinstance(pb_raw.columns, pd.MultiIndex):
+            pb_raw.columns = ["_".join(col).strip() for col in pb_raw.columns.values]
+        pb_raw = pb_raw.rename(columns={
+            "listing_symbol": "symbol",
+            "match_match_price": "price",
+            "listing_ref_price": "ref_price",
+            "match_accumulated_volume": "volume",
+        })
 
-        if "change_percent" in df.columns:
-            df_sorted = df.sort_values("change_percent", ascending=False)
-            gainers = df_sorted.head(n)[["ticker", "price", "change_percent"]].to_dict(orient="records")
-            losers = df_sorted.tail(n)[["ticker", "price", "change_percent"]].iloc[::-1].to_dict(orient="records")
-            result["gainers"] = [{"symbol": r.get("ticker"), "price": r.get("price"), "pct_change": r.get("change_percent")} for r in gainers]
-            result["losers"] = [{"symbol": r.get("ticker"), "price": r.get("price"), "pct_change": r.get("change_percent")} for r in losers]
+        # Lọc rows có dữ liệu hợp lệ
+        valid = pb_raw[
+            pb_raw["symbol"].notna() &
+            (pb_raw["price"].fillna(0) > 0) &
+            (pb_raw["ref_price"].fillna(0) > 0)
+        ].copy()
 
-        if "volume" in df.columns:
-            vol_leaders = df.nlargest(n, "volume")[["ticker", "price", "volume"]].to_dict(orient="records")
-            result["volume_leaders"] = [{"symbol": r.get("ticker"), "price": r.get("price"), "volume": r.get("volume")} for r in vol_leaders]
+        if len(valid) == 0:
+            return result
+
+        valid["pct_change"] = ((valid["price"] - valid["ref_price"]) / valid["ref_price"] * 100).round(2)
+
+        df_sorted = valid.sort_values("pct_change", ascending=False)
+        gainers = df_sorted.head(n)[["symbol", "price", "pct_change"]].to_dict(orient="records")
+        losers = df_sorted.tail(n)[["symbol", "price", "pct_change"]].iloc[::-1].to_dict(orient="records")
+        vol_leaders = valid.nlargest(n, "volume")[["symbol", "price", "volume"]].to_dict(orient="records")
+
+        result["gainers"] = [{"symbol": r["symbol"], "price": float(r["price"]), "pct_change": float(r["pct_change"])} for r in gainers]
+        result["losers"] = [{"symbol": r["symbol"], "price": float(r["price"]), "pct_change": float(r["pct_change"])} for r in losers]
+        result["volume_leaders"] = [{"symbol": r["symbol"], "price": float(r["price"]), "volume": int(r["volume"])} for r in vol_leaders]
 
         cache.set(cache_key, result, ttl_type="market")
         return result
@@ -467,18 +568,19 @@ def get_sector_peers(symbol: str) -> list[str]:
         return cached
 
     try:
-        Vnstock = _import_vnstock()
-        vs = Vnstock(source="TCBS")
-        df = _rate_limited_call(vs.stock_screening.stock_screening)
+        from vnstock import Listing  # noqa: PLC0415
+
+        # vnstock 3.5.0: dùng Listing.symbols_by_industries() thay cho stock_screening
+        df = _rate_limited_call(Listing().symbols_by_industries)
 
         if df is None or len(df) == 0:
             return []
 
-        df = df.rename(columns=str.lower)
-        col_ticker = "ticker" if "ticker" in df.columns else "symbol"
-        col_industry = next((c for c in df.columns if "industry" in c.lower()), None)
+        # df có columns: symbol, industry_code, industry_name
+        col_ticker = "symbol"
+        col_industry = "industry_name"
 
-        if col_industry is None:
+        if col_ticker not in df.columns or col_industry not in df.columns:
             return []
 
         # Tìm ngành của symbol

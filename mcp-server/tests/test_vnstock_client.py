@@ -42,10 +42,40 @@ _HISTORY_DF_DEFAULT = pd.DataFrame({
 }, index=_dates_250)
 
 
-def _make_mock_stock(quote_df: pd.DataFrame | None = None):
+def _make_price_board_df(
+    symbol: str = "VNM",
+    ref_price: float = 75000.0,
+    match_price: float = 75000.0,
+    ceiling: float = 80250.0,
+    floor: float = 69750.0,
+    volume: int = 1_250_000,
+) -> pd.DataFrame:
+    """Helper tạo price_board DataFrame với flat columns (đã flatten MultiIndex)."""
+    return pd.DataFrame({
+        "listing_symbol": [symbol],
+        "listing_ceiling": [ceiling],
+        "listing_floor": [floor],
+        "listing_ref_price": [ref_price],
+        "match_match_price": [match_price],
+        "match_open_price": [74000.0],
+        "match_highest": [75500.0],
+        "match_lowest": [73500.0],
+        "match_accumulated_volume": [volume],
+        "match_accumulated_value": [93.75],  # ~million VND placeholder
+        "match_foreign_buy_volume": [50000],
+        "match_foreign_sell_volume": [30000],
+        "match_foreign_buy_value": [3_750_000_000.0],
+        "match_foreign_sell_value": [2_250_000_000.0],
+        "match_current_room": [0.5e9],
+        "match_total_room": [1e9],
+    })
+
+
+def _make_mock_stock(quote_df: pd.DataFrame | None = None, price_board_df: pd.DataFrame | None = None):
     """
     Helper tạo mock Vnstock object.
-    quote_df: được trả về bởi stock.quote.history() (dùng cho cả price và history).
+    quote_df: được trả về bởi stock.quote.history()
+    price_board_df: được trả về bởi stock.trading.price_board()
     """
     mock_stock = MagicMock()
     mock_quote = MagicMock()
@@ -55,6 +85,12 @@ def _make_mock_stock(quote_df: pd.DataFrame | None = None):
 
     mock_quote.history.return_value = quote_df
     mock_stock.quote = mock_quote
+
+    mock_trading = MagicMock()
+    if price_board_df is None:
+        price_board_df = _make_price_board_df()
+    mock_trading.price_board.return_value = price_board_df
+    mock_stock.trading = mock_trading
 
     mock_finance = MagicMock()
     mock_stock.finance = mock_finance
@@ -83,10 +119,14 @@ class TestGetStockPrice:
         assert "timestamp" in result
 
     def test_ceiling_floor_calculation(self) -> None:
-        """Ceiling = ref * 1.07, floor = ref * 0.93 (HOSE bands)."""
-        mock_stock = _make_mock_stock(
-            pd.DataFrame({"time": ["2026-03-30"], "close": [100000.0], "open": [100000.0], "high": [100000.0], "low": [100000.0], "volume": [1000]})
+        """Ceiling và floor lấy từ listing_ceiling/listing_floor trong price_board."""
+        pb_df = _make_price_board_df(
+            ref_price=100000.0,
+            match_price=100000.0,
+            ceiling=107000.0,
+            floor=93000.0,
         )
+        mock_stock = _make_mock_stock(price_board_df=pb_df)
 
         with patch("data_sources.vnstock_client._import_vnstock") as mock_vs_cls:
             mock_instance = MagicMock()
@@ -95,12 +135,12 @@ class TestGetStockPrice:
 
             result = vnstock_client.get_stock_price("TEST")
 
-        assert result["ceiling"] == 107000
-        assert result["floor"] == 93000
+        assert result["ceiling"] == 107000.0
+        assert result["floor"] == 93000.0
 
     def test_symbol_not_found_returns_error(self) -> None:
-        """Symbol không tồn tại → trả về error dict."""
-        mock_stock = _make_mock_stock(pd.DataFrame())
+        """Symbol không tồn tại → trả về error dict (price_board rỗng)."""
+        mock_stock = _make_mock_stock(price_board_df=pd.DataFrame())
 
         with patch("data_sources.vnstock_client._import_vnstock") as mock_vs_cls:
             mock_instance = MagicMock()
@@ -200,17 +240,23 @@ class TestGetStockHistory:
 
 class TestGetMarketOverview:
     def test_returns_index_structure(self) -> None:
-        """get_market_overview trả về VN-Index, HNX, UPCOM."""
-        mock_overview_df = pd.DataFrame([
-            {"indexId": "VNINDEX", "indexValue": 1782.5, "indexChange": -3.2, "indexChangePercent": -0.18,
-             "advances": 245, "declines": 198, "noChanges": 57, "ceilings": 12, "floors": 8},
-            {"indexId": "HNX", "indexValue": 220.0, "indexChange": 0.5, "indexChangePercent": 0.23},
-            {"indexId": "UPCOM", "indexValue": 93.5, "indexChange": 0.1, "indexChangePercent": 0.11},
-        ])
+        """get_market_overview trả về VN-Index, HNX, UPCOM từ quote.history."""
+        # mock quote.history trả về 2 rows để tính change
+        _index_history = pd.DataFrame({
+            "time": ["2026-03-28", "2026-03-31"],
+            "open": [1770.0, 1780.0], "high": [1790.0, 1790.0],
+            "low": [1760.0, 1775.0], "close": [1775.0, 1782.5],
+            "volume": [800_000_000, 900_000_000],
+        })
+
+        mock_stock = MagicMock()
+        mock_stock.quote.history.return_value = _index_history
+        # price_board mock for breadth (empty ok)
+        mock_stock.trading.price_board.return_value = pd.DataFrame()
 
         with patch("data_sources.vnstock_client._import_vnstock") as mock_vs_cls:
             mock_instance = MagicMock()
-            mock_instance.stock_screening.market_overview.return_value = mock_overview_df
+            mock_instance.stock.return_value = mock_stock
             mock_vs_cls.return_value = MagicMock(return_value=mock_instance)
 
             result = vnstock_client.get_market_overview()
@@ -219,5 +265,5 @@ class TestGetMarketOverview:
         assert "hnx_index" in result
         assert "upcom_index" in result
         assert result["vn_index"]["value"] == 1782.5
-        assert result["advance"] == 245
-        assert result["decline"] == 198
+        assert result["vn_index"]["change"] == round(1782.5 - 1775.0, 2)
+        assert result["vn_index"]["pct"] == round((1782.5 - 1775.0) / 1775.0 * 100, 2)
