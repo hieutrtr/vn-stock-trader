@@ -1,7 +1,8 @@
 """
 news_scraper.py — Scraper tin tức thị trường chứng khoán Việt Nam.
 
-Nguồn: CafeF, Vietstock, VNExpress, NDH, HOSE, HNX, SSC, FireAnt
+Nguồn: CafeF, VNExpress, NDH (tinnhanhchungkhoan.vn), HNX, baodautu.vn,
+       VnEconomy RSS, VietnamBiz RSS
 Không phụ thuộc vào mã cụ thể — lấy tin thị trường chung.
 Cache TTL: 10 phút (news).
 """
@@ -10,11 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html as html_module
 import logging
 import random
 import re
 import sys
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -53,10 +56,10 @@ NEWS_SOURCES = {
         "category": "company",
         "source": "cafef",
     },
-    "vietstock_market": {
-        "url": "https://vietstock.vn/thi-truong/tin-thi-truong.htm",
+    "vneconomy_market": {
+        "url": "https://vneconomy.vn/chung-khoan.rss",
         "category": "market",
-        "source": "vietstock",
+        "source": "vneconomy",
     },
     "vnexpress_biz": {
         "url": "https://vnexpress.net/kinh-doanh/chung-khoan",
@@ -68,10 +71,10 @@ NEWS_SOURCES = {
         "category": "market",
         "source": "tinnhanhchungkhoan",
     },
-    "hose_market": {
-        "url": "https://www.hsx.vn/Modules/Cms/Web/NewsByCat/dca0933e-a578-4eaf-8b29-beb4575052c9",
+    "vietnambiz_market": {
+        "url": "https://vietnambiz.vn/chung-khoan.rss",
         "category": "market",
-        "source": "hose",
+        "source": "vietnambiz",
     },
     "hnx_market": {
         "url": "https://www.hnx.vn/tin-tuc-su-kien-ttcbhnx.html",
@@ -82,11 +85,6 @@ NEWS_SOURCES = {
         "url": "https://baodautu.vn/dau-tu-tai-chinh-d6/",
         "category": "market",
         "source": "baodautu",
-    },
-    "fireant_market": {
-        "url": "https://fireant.vn/",
-        "category": "market",
-        "source": "fireant",
     },
 }
 
@@ -156,10 +154,15 @@ async def _fetch_html(
 
 
 def _parse_date(text: str | None) -> str | None:
-    """Parse ngày Việt Nam/ISO."""
+    """Parse ngày Việt Nam/ISO/RFC 2822."""
     if not text:
         return None
     text = text.strip()
+    # RFC 2822 (RSS pubDate): "Tue, 07 Apr 2026 14:05:03 GMT"
+    try:
+        return parsedate_to_datetime(text).isoformat()
+    except Exception:
+        pass
     for fmt in (
         "%d/%m/%Y %H:%M",
         "%d/%m/%Y",
@@ -222,33 +225,35 @@ def _parse_cafef_news(html: str, source_key: str) -> list[dict[str, Any]]:
     return results
 
 
-def _parse_vietstock_news(html: str) -> list[dict[str, Any]]:
-    """Parse tin từ Vietstock."""
-    config = NEWS_SOURCES["vietstock_market"]
-    soup = BeautifulSoup(html, "lxml")
+def _parse_rss_news(html: str, source_key: str) -> list[dict[str, Any]]:
+    """Parse RSS feed — dùng cho VnEconomy và VietnamBiz."""
+    config = NEWS_SOURCES[source_key]
+    soup = BeautifulSoup(html, "xml")
     results = []
 
-    items = soup.find_all(["article", "div", "li"], class_=re.compile(r"news|article|item|post", re.I), limit=60)
-    for item in items:
-        link = item.find("a", href=re.compile(r"vietstock\.vn", re.I))
-        if not link:
-            link = item.find("a", href=True)
-        if not link:
+    for item in soup.find_all("item"):
+        title_el = item.find("title")
+        title = html_module.unescape(title_el.get_text(strip=True)) if title_el else ""
+        if not title or len(title) < 10:
             continue
 
-        title = link.get("title") or link.get_text(strip=True)
-        if not title or len(title) < 15:
+        link_el = item.find("link")
+        href = link_el.get_text(strip=True) if link_el else ""
+        if not href:
+            guid_el = item.find("guid")
+            href = guid_el.get_text(strip=True) if guid_el else ""
+        if not href:
             continue
 
-        href = link["href"]
-        if not href.startswith("http"):
-            href = "https://vietstock.vn" + href
+        desc_el = item.find("description")
+        summary = ""
+        if desc_el:
+            raw = html_module.unescape(desc_el.get_text(strip=True))
+            # Strip remaining HTML tags
+            summary = re.sub(r"<[^>]+>", " ", raw).strip()[:300]
 
-        date_el = item.find(["time", "span"], class_=re.compile(r"date|time", re.I))
-        date_text = date_el.get("datetime") or date_el.get_text(strip=True) if date_el else None
-
-        summary_el = item.find(["p", "div"], class_=re.compile(r"desc|summary|sapo", re.I))
-        summary = summary_el.get_text(strip=True)[:300] if summary_el else ""
+        pub_el = item.find("pubDate")
+        date_text = pub_el.get_text(strip=True) if pub_el else None
 
         results.append({
             "title": title,
@@ -260,6 +265,8 @@ def _parse_vietstock_news(html: str) -> list[dict[str, Any]]:
             "symbols_mentioned": extract_symbols_from_text(f"{title} {summary}"),
             "category": config["category"],
         })
+        if len(results) >= 30:
+            break
 
     return results
 
@@ -337,14 +344,17 @@ def _parse_ndh_news(html: str) -> list[dict[str, Any]]:
             href = "https://www.tinnhanhchungkhoan.vn" + href
 
         # Tìm ngày trong các phần tử cha gần nhất
+        # <time> thường không có class → tìm <time> riêng, không lọc theo class
         date_text = None
         container = link.parent
         for _ in range(4):
             if container is None:
                 break
-            date_el = container.find(
-                ["time", "span"], class_=re.compile(r"date|time|ngay", re.I)
-            )
+            time_el = container.find("time")
+            if time_el:
+                date_text = time_el.get("datetime") or time_el.get_text(strip=True)
+                break
+            date_el = container.find("span", class_=re.compile(r"date|time|ngay", re.I))
             if date_el:
                 date_text = date_el.get("datetime") or date_el.get_text(strip=True)
                 break
@@ -366,71 +376,9 @@ def _parse_ndh_news(html: str) -> list[dict[str, Any]]:
     return results
 
 
-def _parse_hose_news(html: str) -> list[dict[str, Any]]:
-    """Parse tin từ HOSE (Sở Giao dịch Chứng khoán TP.HCM)."""
-    config = NEWS_SOURCES["hose_market"]
-    soup = BeautifulSoup(html, "lxml")
-    results = []
-
-    # HOSE CMS thường render dạng bảng hoặc danh sách với các thẻ a + tiêu đề
-    # Tìm các thẻ a có href trỏ về hsx.vn hoặc link bài viết
-    link_patterns = [
-        re.compile(r"hsx\.vn", re.I),
-        re.compile(r"/Modules/Cms/", re.I),
-        re.compile(r"newsdetail|tin-tuc|detail", re.I),
-    ]
-
-    # Thử tìm các item dạng row/cell trước
-    rows = soup.find_all(["tr", "div", "li"], class_=re.compile(r"row|item|news|article", re.I), limit=60)
-    if not rows:
-        rows = soup.find_all(["tr", "div", "li"], limit=200)
-
-    seen_hrefs: set[str] = set()
-    for row in rows:
-        link = None
-        for pattern in link_patterns:
-            link = row.find("a", href=pattern)
-            if link:
-                break
-        if not link:
-            link = row.find("a", href=True)
-        if not link:
-            continue
-
-        href = link.get("href", "")
-        if not href or href in seen_hrefs:
-            continue
-        if not href.startswith("http"):
-            href = "https://www.hsx.vn" + href
-        seen_hrefs.add(href)
-
-        title = link.get("title") or link.get_text(strip=True)
-        if not title or len(title) < 10:
-            # Tìm tiêu đề trong các thẻ con của row
-            heading = row.find(["h2", "h3", "h4", "strong", "b"])
-            title = heading.get_text(strip=True) if heading else ""
-        if not title or len(title) < 10:
-            continue
-
-        date_el = row.find(["time", "span", "td"], class_=re.compile(r"date|time", re.I))
-        date_text = None
-        if date_el:
-            date_text = date_el.get("datetime") or date_el.get_text(strip=True)
-
-        results.append({
-            "title": title,
-            "title_hash": _title_hash(title),
-            "url": href,
-            "summary": "",
-            "published_at": _parse_date(date_text),
-            "source": config["source"],
-            "symbols_mentioned": extract_symbols_from_text(title),
-            "category": config["category"],
-        })
-        if len(results) >= 30:
-            break
-
-    return results
+def _parse_vietnambiz_news(html: str) -> list[dict[str, Any]]:
+    """Parse RSS feed từ VietnamBiz (thay HOSE — React SPA không scrape được)."""
+    return _parse_rss_news(html, "vietnambiz_market")
 
 
 def _parse_hnx_news(html: str) -> list[dict[str, Any]]:
@@ -558,80 +506,6 @@ def _parse_ssc_news(html: str) -> list[dict[str, Any]]:
     return results
 
 
-def _parse_fireant_news(html: str) -> list[dict[str, Any]]:
-    """Parse tin từ FireAnt via __NEXT_DATA__ JSON embedded in page.
-
-    FireAnt là Next.js SPA — tin tức nằm trong thẻ <script id="__NEXT_DATA__">
-    tại path: props.pageProps.initialState.posts.posts.NEWS_STREAM.posts
-    """
-    config = NEWS_SOURCES["fireant_market"]
-    soup = BeautifulSoup(html, "lxml")
-    results = []
-
-    script = soup.find("script", id="__NEXT_DATA__")
-    if not script or not script.string:
-        return results
-
-    try:
-        data = json.loads(script.string)
-    except (json.JSONDecodeError, TypeError):
-        return results
-
-    try:
-        posts = (
-            data["props"]["pageProps"]["initialState"]["posts"]["posts"]
-            .get("NEWS_STREAM", {})
-            .get("posts", [])
-        )
-    except (KeyError, TypeError):
-        return results
-
-    for post in posts:
-        title = post.get("title", "")
-        if not title or len(title) < 10:
-            continue
-
-        post_id = post.get("postID", "")
-        # FireAnt article URL pattern: /bai-viet/<uuid>/<postID>
-        # We can construct a usable URL from postID
-        url = f"https://fireant.vn/bai-viet/{post_id}" if post_id else ""
-
-        description = post.get("description", "") or ""
-        date_str = post.get("date", "")
-
-        # Parse date — FireAnt uses ISO format with timezone: 2026-04-07T10:00:00+07:00
-        published_at = None
-        if date_str:
-            # Strip timezone offset for simpler parsing
-            clean_date = re.sub(r"[+-]\d{2}:\d{2}$", "", date_str)
-            published_at = _parse_date(clean_date)
-
-        # Extract tagged symbols from FireAnt's structured data
-        tagged_symbols = [
-            s.get("symbol", "") for s in post.get("taggedSymbols", []) if s.get("symbol")
-        ]
-        # Also extract from title + description text
-        text_symbols = extract_symbols_from_text(f"{title} {description}")
-        # Merge, preserving order, no duplicates
-        all_symbols = list(dict.fromkeys(tagged_symbols + text_symbols))[:10]
-
-        results.append({
-            "title": title,
-            "title_hash": _title_hash(title),
-            "url": url,
-            "summary": description[:300] if description else "",
-            "published_at": published_at,
-            "source": config["source"],
-            "symbols_mentioned": all_symbols,
-            "category": config["category"],
-        })
-
-        if len(results) >= 30:
-            break
-
-    return results
-
-
 # ─── Public Functions ─────────────────────────────────────────────────────────
 
 
@@ -694,16 +568,13 @@ async def get_market_news(limit: int = 30) -> list[dict[str, Any]]:
     tasks = [
         ("cafef_market", _fetch_html(NEWS_SOURCES["cafef_market"]["url"])),
         ("cafef_company", _fetch_html(NEWS_SOURCES["cafef_company"]["url"])),
-        ("vietstock_market", _fetch_html(NEWS_SOURCES["vietstock_market"]["url"])),
+        ("vneconomy_market", _fetch_html(NEWS_SOURCES["vneconomy_market"]["url"])),
         ("vnexpress_biz", _fetch_html(NEWS_SOURCES["vnexpress_biz"]["url"])),
         ("ndh_market", _fetch_html(
             NEWS_SOURCES["ndh_market"]["url"],
             extra_headers={"Referer": "https://tinnhanhchungkhoan.vn/"},
         )),
-        ("hose_market", _fetch_html(
-            NEWS_SOURCES["hose_market"]["url"],
-            extra_headers={"Referer": "https://www.hsx.vn/"},
-        )),
+        ("vietnambiz_market", _fetch_html(NEWS_SOURCES["vietnambiz_market"]["url"])),
         ("hnx_market", _fetch_html(
             NEWS_SOURCES["hnx_market"]["url"],
             extra_headers={"Referer": "https://www.hnx.vn/"},
@@ -713,17 +584,12 @@ async def get_market_news(limit: int = 30) -> list[dict[str, Any]]:
             NEWS_SOURCES["ssc_market"]["url"],
             extra_headers={"Referer": "https://baodautu.vn/"},
         )),
-        ("fireant_market", _fetch_html(
-            NEWS_SOURCES["fireant_market"]["url"],
-            extra_headers={"Referer": "https://fireant.vn/"},
-        )),
     ]
 
     htmls = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
 
-    all_news: list[dict[str, Any]] = []
-
-    # Parse từng nguồn
+    # Parse từng nguồn — giữ riêng từng list để round-robin sau
+    per_source: list[list[dict[str, Any]]] = []
     source_keys = [t[0] for t in tasks]
     for key, html in zip(source_keys, htmls):
         if isinstance(html, Exception) or html is None:
@@ -731,25 +597,34 @@ async def get_market_news(limit: int = 30) -> list[dict[str, Any]]:
         try:
             if key.startswith("cafef"):
                 news = _parse_cafef_news(html, key)
-            elif key == "vietstock_market":
-                news = _parse_vietstock_news(html)
+            elif key == "vneconomy_market":
+                news = _parse_rss_news(html, key)
             elif key == "vnexpress_biz":
                 news = _parse_vnexpress_news(html)
             elif key == "ndh_market":
                 news = _parse_ndh_news(html)
-            elif key == "hose_market":
-                news = _parse_hose_news(html)
+            elif key == "vietnambiz_market":
+                news = _parse_vietnambiz_news(html)
             elif key == "hnx_market":
                 news = _parse_hnx_news(html)
             elif key == "ssc_market":
                 news = _parse_ssc_news(html)
-            elif key == "fireant_market":
-                news = _parse_fireant_news(html)
             else:
                 news = []
-            all_news.extend(news)
+            if news:
+                per_source.append(news)
         except Exception as e:
             logger.warning("Parse news %s failed: %s", key, e)
+
+    # Round-robin merge: lấy lần lượt 1 bài từ mỗi source để tránh 1 source
+    # chiếm hết slot khi tất cả published_at đều là None (stable sort giữ
+    # insertion order → source đầu tiên sẽ lấp đầy limit).
+    all_news: list[dict[str, Any]] = []
+    max_rounds = max((len(s) for s in per_source), default=0)
+    for i in range(max_rounds):
+        for src_list in per_source:
+            if i < len(src_list):
+                all_news.append(src_list[i])
 
     # Deduplicate by URL and title hash (catches same article from multiple sources)
     seen_urls: set[str] = set()
@@ -768,11 +643,9 @@ async def get_market_news(limit: int = 30) -> list[dict[str, Any]]:
             seen_hashes.add(th)
         unique_news.append(item)
 
-    # Sắp xếp theo ngày (mới nhất trước)
-    def sort_key(item: dict) -> str:
-        return item.get("published_at") or ""
-
-    unique_news.sort(key=sort_key, reverse=True)
+    # Không sort toàn cục — round-robin đã đảm bảo đa nguồn và thứ tự
+    # mới nhất trong mỗi source. Global sort theo ngày sẽ đẩy các source
+    # không embed ngày (VNExpress, HNX, baodautu) xuống đáy và phá vỡ balance.
     result = unique_news[:limit]
 
     if result:

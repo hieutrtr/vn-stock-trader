@@ -28,7 +28,7 @@ def register(mcp: FastMCP) -> None:
 
         Sources: CafeF, Vietstock, VNExpress, NDH (Người Đồng Hành),
                  HOSE (Sở Giao dịch TP.HCM), HNX (Sở Giao dịch Hà Nội),
-                 SSC (Ủy ban Chứng khoán Nhà nước), FireAnt.
+                 SSC (Ủy ban Chứng khoán Nhà nước).
         News is cached for 10 minutes.
 
         Args:
@@ -97,7 +97,6 @@ def register(mcp: FastMCP) -> None:
                 "hose": "🏛️",
                 "hnx": "🏢",
                 "ssc": "🏦",
-                "fireant": "🐜",
             }
             source_icon = source_icons.get(art_source.lower(), "📄")
 
@@ -120,5 +119,5 @@ def register(mcp: FastMCP) -> None:
                 lines.append(f"🔗 {art_url}")
             lines.append("")
 
-        lines.append("_Cache 10 phút. Nguồn: CafeF, Vietstock, VNExpress, NDH, HOSE, HNX, SSC, FireAnt_")
+        lines.append("_Cache 10 phút. Nguồn: CafeF, Vietstock, VNExpress, NDH, HOSE, HNX, SSC_")
         return "\n".join(lines)

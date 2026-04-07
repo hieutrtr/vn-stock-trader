@@ -32,21 +32,28 @@ Bash("cd /home/hieutran/projects/tam/stock-trader && python3 scripts/news_update
 
 ## Format đầu ra
 
-⚠️ KHÔNG dùng markdown link `[text](url)` — Telegram không render được.
-PHẢI có plain text URL cho mỗi tin (paste URL trực tiếp, không wrap trong markdown).
+### ⚠️ QUY TẮC BẮT BUỘC:
+1. **KHÔNG dùng markdown link** `[text](url)` — Telegram không render được.
+2. **PHẢI có plain text URL** cho mỗi tin (paste URL trực tiếp).
+3. **PHẢI list TẤT CẢ tin mới** — KHÔNG được tóm tắt/rút gọn thành "X tin nổi bật". Mỗi tin mới = 1 bullet.
+4. Nếu >15 tin mới: list đủ 15 tin đầu, cuối ghi "... và N tin khác đã lưu vào archive".
 
+### Output mẫu:
 ```
 📰 NEWS UPDATE
 🆕 {N} tin mới  |  📦 Archive: {total} bài
 
 • Tóm tắt ngắn 1 câu
-  https://example.com/article/123 (Nguồn)
+  https://cafef.vn/article/123 (CafeF)
 • Tóm tắt ngắn 1 câu
-  https://example.com/article/456 (Nguồn)
-...
+  https://vietstock.vn/article/456 (Vietstock)
+• Tóm tắt ngắn 1 câu
+  https://vnexpress.net/article/789 (VNExpress)
+[... list TẤT CẢ tin mới, tối đa 15 ...]
+
+... và {N-15} tin khác đã lưu vào archive.  ← khi N > 15
 
 ✅ Không có tin mới — tất cả đã đọc.     ← khi N = 0
-... và {N-15} tin khác đã lưu vào archive.  ← khi N > 15
 ```
 
 ## Xử lý lỗi
