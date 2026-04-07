@@ -112,10 +112,12 @@ vn-stock-trader/
 │   │   ├── portfolio.py      # get_portfolio, update_portfolio
 │   │   └── insider.py        # get_insider_trades
 │   ├── data_sources/         # Data layer
-│   │   ├── vnstock_client.py # vnstock3 wrapper với SQLite cache
-│   │   ├── news_scraper.py   # CafeF / Vietstock crawler
-│   │   ├── ta_calculator.py  # pandas-ta indicators
-│   │   └── portfolio.py      # Portfolio data model
+│   │   ├── vnstock_client.py  # vnstock3 wrapper với SQLite cache
+│   │   ├── vietstock_client.py# Vietstock data source
+│   │   ├── news_scraper.py    # 7 nguồn tin: CafeF, VnEconomy, VNExpress,
+│   │   │                      # Tin Nhanh CK, VietnamBiz, HNX, Báo Đầu tư
+│   │   ├── ta_calculator.py   # pandas-ta indicators
+│   │   └── portfolio.py       # Portfolio data model
 │   ├── cache/                # SQLite cache module
 │   └── tests/                # 102+ pytest tests
 ├── scripts/                  # Automation scripts
@@ -377,7 +379,10 @@ Claude Code (chat)
     └── MCP Tools (giao tiếp với data layer)
         │
         ├── data_sources/vnstock_client.py  ──→ vnstock3 API (TCBS/VCI)
-        ├── data_sources/news_scraper.py    ──→ CafeF, Vietstock, VNExpress
+        ├── data_sources/vietstock_client.py──→ Vietstock API
+        ├── data_sources/news_scraper.py    ──→ CafeF, VnEconomy, VNExpress,
+        │                                       Tin Nhanh CK, VietnamBiz,
+        │                                       HNX, Báo Đầu tư
         ├── data_sources/ta_calculator.py   ──→ pandas-ta
         ├── data_sources/portfolio.py       ──→ data/portfolio.json
         └── cache/cache.py                  ──→ SQLite (TTL cache)
@@ -391,6 +396,28 @@ Claude Code (chat)
 | Lịch sử giá | 60 phút |
 | BCTC | 24 giờ |
 | Tin tức | 10 phút |
+
+---
+
+## 📰 Nguồn dữ liệu
+
+### Dữ liệu thị trường
+| Nguồn | Loại dữ liệu |
+|-------|-------------|
+| **TCBS** (via vnstock3) | Giá realtime, lịch sử OHLCV, BCTC, giao dịch nội bộ |
+| **VCI** (via vnstock3) | Backup/fallback cho dữ liệu giá |
+| **Vietstock** | Dữ liệu bổ sung |
+
+### Nguồn tin tức (7 nguồn)
+| Nguồn | URL | Phương thức |
+|-------|-----|-------------|
+| **CafeF** | cafef.vn/thi-truong-chung-khoan.chn | HTML scraping |
+| **VnEconomy** | vneconomy.vn/chung-khoan.rss | RSS |
+| **VNExpress** | vnexpress.net/kinh-doanh/chung-khoan | HTML scraping |
+| **Tin Nhanh Chứng Khoán** | tinnhanhchungkhoan.vn/chung-khoan | HTML scraping |
+| **VietnamBiz** | vietnambiz.vn/chung-khoan.rss | RSS |
+| **HNX** | hnx.vn/tin-tuc-su-kien-ttcbhnx | HTML scraping |
+| **Báo Đầu tư** | baodautu.vn/dau-tu-tai-chinh-d6 | HTML scraping |
 
 ---
 
