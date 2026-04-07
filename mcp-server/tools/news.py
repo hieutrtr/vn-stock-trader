@@ -26,7 +26,10 @@ def register(mcp: FastMCP) -> None:
         """
         Get latest Vietnamese stock market news, optionally filtered by stock symbol.
 
-        Sources: CafeF, Vietstock, VNExpress. News is cached for 10 minutes.
+        Sources: CafeF, Vietstock, VNExpress, NDH (Người Đồng Hành),
+                 HOSE (Sở Giao dịch TP.HCM), HNX (Sở Giao dịch Hà Nội),
+                 SSC (Ủy ban Chứng khoán Nhà nước), FireAnt.
+        News is cached for 10 minutes.
 
         Args:
             symbol: Stock ticker to filter news (e.g. "VNM"). Empty string = all market news.
@@ -90,6 +93,11 @@ def register(mcp: FastMCP) -> None:
                 "cafef": "☕",
                 "vietstock": "📊",
                 "vnexpress": "📱",
+                "ndh": "🗞️",
+                "hose": "🏛️",
+                "hnx": "🏢",
+                "ssc": "🏦",
+                "fireant": "🐜",
             }
             source_icon = source_icons.get(art_source.lower(), "📄")
 
@@ -112,5 +120,5 @@ def register(mcp: FastMCP) -> None:
                 lines.append(f"🔗 {art_url}")
             lines.append("")
 
-        lines.append("_Cache 10 phút. Nguồn: CafeF, Vietstock, VNExpress_")
+        lines.append("_Cache 10 phút. Nguồn: CafeF, Vietstock, VNExpress, NDH, HOSE, HNX, SSC, FireAnt_")
         return "\n".join(lines)

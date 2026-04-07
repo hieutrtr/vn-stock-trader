@@ -240,10 +240,7 @@ def _section_news(news: list[dict]) -> list[str]:
         else:
             pub_str = ""
 
-        if url:
-            lines.append(f"- [{title}]({url}) _{pub_str} / {source}_")
-        else:
-            lines.append(f"- **{title}** _{pub_str} / {source}_")
+        lines.append(f"- {title} _{pub_str} / {source}_")
 
     return lines
 

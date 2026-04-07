@@ -253,10 +253,7 @@ def _section_session_news(news: list[dict]) -> list[str]:
         else:
             pub_str = ""
 
-        if url:
-            lines.append(f"- [{title}]({url})" + (f" _{pub_str}_" if pub_str else ""))
-        else:
-            lines.append(f"- **{title}**" + (f" _{pub_str}_" if pub_str else ""))
+        lines.append(f"- {title}" + (f" _{pub_str}_" if pub_str else ""))
 
     return lines
 
